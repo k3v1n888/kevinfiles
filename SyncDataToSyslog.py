@@ -121,9 +121,9 @@ def get_monitor_option():
 
     # syslog options
     settings = {
-                "host": "1.2.3.4", # must
+                "host": "220.100.162.15", # must
                 "port": 514,       # must, port
-                "protocol": "tcp", # must, tcp, udp, tls (py3 only)
+                "protocol": "udp", # must, tcp, udp, tls (py3 only)
                 "sep": "||",      # must, separator for key=value
                 "cert_path": None,  # optional, cert path when TLS is configured
                 "timeout": 120,   # optional, default 120
