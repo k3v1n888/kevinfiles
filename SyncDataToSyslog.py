@@ -158,8 +158,7 @@ def get_option():
                 "tag": None # optional, tag for the log, default -
     }
 
-    return option, settings
-
+    return options, settings
 
 def main():
     executor, options, settings = get_option()
