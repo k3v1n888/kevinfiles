@@ -8,6 +8,10 @@ import aliyun.log.ext.syslogclient as syslogclient
 from aliyun.log.ext.syslogclient import SyslogClientRFC5424 as SyslogClient
 import six
 from datetime import datetime
+import socket
+import requests
+from concurrent.futures import ThreadPoolExecutor
+import json
 
 # configure logging file
 root = logging.getLogger()
@@ -78,21 +82,23 @@ class SyncData(ConsumerProcessorBase):
         self.save_checkpoint(check_point_tracker)
 
 
-def get_monitor_option():
+def get_option():
     ##########################
     # Basic options
     ##########################
 
     # load connection info env and consumer group name from envs
-    endpoint = os.environ.get('SLS_ENDPOINT', '')
     accessKeyId = os.environ.get('SLS_AK_ID', '')
     accessKey = os.environ.get('SLS_AK_KEY', '')
-    project = os.environ.get('SLS_PROJECT', '')
-    logstore = os.environ.get('SLS_LOGSTORE', '')
+    endpoints = os.environ.get('SLS_ENDPOINTS', '').split(";")  # endpoints list separated by ;
+    projects = os.environ.get('SLS_PROJECTS', '').split(";")    # projects list, separated by ; must be same len as endpoints
+    logstores = os.environ.get('SLS_LOGSTORES', '').split(";")  # logstores list, seperated by ; pared with project. and separated by ',' for one project.
     consumer_group = os.environ.get('SLS_CG', '')
 
-    assert endpoint and accessKeyId and accessKey and project and logstore and consumer_group, \
-        ValueError("endpoint/access_id/key/project/logstore/consumer_group/name cannot be empty")
+    assert endpoints and accessKeyId and accessKey and projects and logstores and consumer_group, \
+        ValueError("endpoints/access_id/key/projects/logstores/consumer_group/name cannot be empty")
+
+    assert len(endpoints) == len(projects) == len(logstores), ValueError("endpoints/projects/logstores must be paired")
 
     ##########################
     # Some advanced options
@@ -103,21 +109,40 @@ def get_monitor_option():
 
     # This options is used for initialization, will be ignored once consumer group is created and each shard has beeen started to be consumed.
     # Could be "begin", "end", "specific time format in ISO", it's log receiving time.
-    cursor_start_time = "2019-1-1 0:0:0+8:00"
+    cursor_start_time = "begin"
 
     # once a client doesn't report to server * heartbeat_interval * 2 interval, server will consider it's offline and re-assign its task to another consumer.
     # thus  don't set the heatbeat interval too small when the network badwidth or performance of consumtion is not so good.
-    heartbeat_interval = 20
+    heartbeat_interval = 60
 
     # if the coming data source data is not so frequent, please don't configure it too small (<1s)
     data_fetch_interval = 1
+    
+    executor = ThreadPoolExecutor(max_workers=2)
 
-    # create one consumer in the consumer group
-    option = LogHubConfig(endpoint, accessKeyId, accessKey, project, logstore, consumer_group, consumer_name,
-                          cursor_position=CursorPosition.SPECIAL_TIMER_CURSOR,
-                          cursor_start_time=cursor_start_time,
-                          heartbeat_interval=heartbeat_interval,
-                          data_fetch_interval=data_fetch_interval)
+    options = []
+    for i in range(len(endpoints)):
+        endpoint = endpoints[i].strip()
+        project = projects[i].strip()
+        if not endpoint or not project:
+            logger.error("project: {0} or endpoint {1} is empty, skip".format(project, endpoint))
+            continue
+
+        logstore_list = logstores[i].split(",")
+        for logstore in logstore_list:
+            logstore = logstore.strip()
+            if not logstore:
+                logger.error("logstore for project: {0} or endpoint {1} is empty, skip".format(project, endpoint))
+                continue
+
+            # create one consumer in the consumer group
+            option = LogHubConfig(endpoint, accessKeyId, accessKey, project, logstore, consumer_group, consumer_name,
+                                  cursor_position=CursorPosition.SPECIAL_TIMER_CURSOR,
+                                  cursor_start_time=cursor_start_time,
+                                  heartbeat_interval=heartbeat_interval,
+                                  data_fetch_interval=data_fetch_interval)
+            options.append(option)
+
 
     # syslog options
     settings = {
@@ -137,11 +162,34 @@ def get_monitor_option():
 
 
 def main():
-    option, settings = get_monitor_option()
+    exeuctor, options, settings = get_option()
 
     logger.info("*** start to consume data...")
-    worker = ConsumerWorker(SyncData, option, args=(settings,) )
-    worker.start(join=True)
+    workers = []
+
+    for option in options:
+        worker = ConsumerWorker(SyncData, option, args=(settings,) )
+        workers.append(worker)
+        worker.start()
+
+    try:
+        for i, worker in enumerate(workers):
+            while worker.is_alive():
+                worker.join(timeout=60)
+            logger.info("worker project: {0} logstore: {1} exit unexpected, try to shutdown it".format(
+                options[i].project, options[i].logstore))
+            worker.shutdown()
+    except KeyboardInterrupt:
+        logger.info("*** try to exit **** ")
+        for worker in workers:
+            worker.shutdown()
+
+        # wait for all workers to shutdown before shutting down executor
+        for worker in workers:
+            while worker.is_alive():
+                worker.join(timeout=60)
+
+    exeuctor.shutdown()
 
 
 if __name__ == '__main__':
