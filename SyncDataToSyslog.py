@@ -1,17 +1,17 @@
 import os
 import logging
+import six
+import socket
+import requests
+import json
 from logging.handlers import RotatingFileHandler
 from aliyun.log.consumer import *
 from aliyun.log.pulllog_response import PullLogResponse
 from multiprocessing import current_process
 import aliyun.log.ext.syslogclient as syslogclient
 from aliyun.log.ext.syslogclient import SyslogClientRFC5424 as SyslogClient
-import six
 from datetime import datetime
-import socket
-import requests
 from concurrent.futures import ThreadPoolExecutor
-import json
 
 # configure logging file
 root = logging.getLogger()
@@ -194,4 +194,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
