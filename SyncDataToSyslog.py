@@ -118,7 +118,7 @@ def get_option():
     # if the coming data source data is not so frequent, please don't configure it too small (<1s)
     data_fetch_interval = 1
     
-    executor = ThreadPoolExecutor(max_workers=2)
+    executor = ThreadPoolExecutor(max_workers=4)
 
     options = []
     for i in range(len(endpoints)):
@@ -159,6 +159,7 @@ def get_option():
     }
 
     return options, settings
+
 
 def main():
     executor, options, settings = get_option()
