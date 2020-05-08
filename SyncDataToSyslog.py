@@ -162,7 +162,7 @@ def get_option():
 
 
 def main():
-    exeuctor, options, settings = get_option()
+    executor, options, settings = get_option()
 
     logger.info("*** start to consume data...")
     workers = []
@@ -189,7 +189,7 @@ def main():
             while worker.is_alive():
                 worker.join(timeout=60)
 
-    exeuctor.shutdown()
+    executor.shutdown()
 
 
 if __name__ == '__main__':
